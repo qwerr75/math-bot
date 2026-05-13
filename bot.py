@@ -12,33 +12,28 @@ dp = Dispatcher(bot)
 
 @dp.update()
 async def handle_update(update):
-    # Пытаемся извлечь сообщение из любого места
-    message = None
-    if hasattr(update, "message"):
-        message = update.message
-    elif hasattr(update, "data") and hasattr(update.data, "message"):
-        message = update.data.message
-    
-    if not message:
-        return
-    
-    # Пытаемся получить текст сообщения
+    # Пытаемся найти текст сообщения
     text = None
-    if hasattr(message, "text"):
-        text = message.text
-    elif hasattr(message, "content"):
-        text = message.content
-    elif isinstance(message, dict):
-        text = message.get("text") or message.get("content")
     
-    # Если текст не найден — отвечаем заглушкой
+    # Пробуем разные варианты получения текста
+    if hasattr(update, 'message'):
+        msg = update.message
+        if hasattr(msg, 'text'):
+            text = msg.text
+        elif hasattr(msg, 'content'):
+            text = msg.content
+        elif hasattr(msg, 'data') and hasattr(msg.data, 'text'):
+            text = msg.data.text
+    
     if not text:
-        await message.answer("Получил сообщение, но текст не найден")
+        # Если текст не найден, отвечаем заглушкой
+        if hasattr(update, 'message'):
+            await update.message.answer("Сообщение получено, но текст не распознан")
         return
     
     # Обработка команды /start
     if text == "/start":
-        await message.answer(
+        await update.message.answer(
             "📚 Я репетитор по математике 5-9 классов.\n"
             "Пришли любую задачу — объясню по шагам.\n\n"
             "🔹 Бесплатно: 5 задач в день\n"
@@ -47,7 +42,7 @@ async def handle_update(update):
         return
     
     # Ответ на любое другое сообщение
-    await message.answer(f"Ты написал: {text}\n\nРешаю... (скоро добавлю решение)")
+    await update.message.answer(f"Ты написал: {text}\n\nРешаю... (скоро добавлю решение)")
 
 async def main():
     await dp.start_polling()
