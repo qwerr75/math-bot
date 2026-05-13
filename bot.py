@@ -1,50 +1,45 @@
 import asyncio
 import os
-from maxapi import Bot
+from aiohttp import ClientSession
 
 BOT_TOKEN = os.getenv("MAX_BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("Токен не найден!")
+API_BASE = "https://platform-api.max.ru/bot/v1"
+HEADERS = {"Authorization": f"Bearer {BOT_TOKEN}", "Content-Type": "application/json"}
 
-bot = Bot(token=BOT_TOKEN)
+async def send_message(chat_id, text):
+    async with ClientSession() as session:
+        async with session.post(f"{API_BASE}/messages/send", headers=HEADERS, json={"chat_id": chat_id, "text": text}) as resp:
+            if resp.status != 200:
+                print(await resp.text())
+
+async def get_updates(offset=0):
+    async with ClientSession() as session:
+        params = {"timeout": 30}
+        if offset:
+            params["offset"] = offset
+        async with session.get(f"{API_BASE}/updates/get", headers=HEADERS, params=params) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                return data.get("updates", [])
+            print(f"Ошибка {resp.status}: {await resp.text()}")
+            return []
 
 async def main():
-    me = await bot.get_me()
-    print(f"Бот {me.username} запущен")
-    
+    print("Бот запущен")
     offset = 0
     while True:
-        # Пытаемся получить обновления. Если offset не поддерживается, убираем его.
-        try:
-            updates = await bot.get_updates(timeout=30)
-        except TypeError:
-            # Если ошибка повторяется, пробуем без аргументов
-            updates = await bot.get_updates()
-        
-        for update in updates:
-            if "message" in update:
-                message = update["message"]
-                chat_id = message["chat"]["id"]
-                text = message.get("text", "")
-                
+        updates = await get_updates(offset)
+        for upd in updates:
+            msg = upd.get("message")
+            if msg:
+                chat_id = msg["chat"]["id"]
+                text = msg.get("text", "")
                 if text == "/start":
-                    await bot.send_message(
-                        chat_id,
-                        "📚 Я репетитор по математике 5-9 классов.\n"
-                        "Пришли любую задачу — объясню по шагам.\n\n"
-                        "🔹 Бесплатно: 5 задач в день\n"
-                        "🔹 Подписка: 399₽/мес, безлимит"
-                    )
+                    await send_message(chat_id, "Привет! Я репетитор.")
                 elif text:
-                    await bot.send_message(
-                        chat_id,
-                        f"Ты написал: {text}\n\nРешаю... (скоро добавлю решение)"
-                    )
-            # Обновляем offset, если есть update_id
-            if "update_id" in update:
-                offset = update["update_id"] + 1
-        
-        await asyncio.sleep(1)
+                    await send_message(chat_id, f"Ты написал: {text}")
+            offset = upd.get("update_id", offset) + 1
+        await asyncio.sleep(0.5)
 
 if __name__ == "__main__":
     asyncio.run(main())
