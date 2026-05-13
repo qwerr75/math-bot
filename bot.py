@@ -1,87 +1,40 @@
 import asyncio
 import os
-import json
-from aiohttp import ClientSession, ClientTimeout
+
+from maxapi import Bot, Dispatcher
+from maxapi.types import BotStarted, Command, MessageCreated
 
 BOT_TOKEN = os.getenv("MAX_BOT_TOKEN")
 
 if not BOT_TOKEN:
-    raise ValueError("Токен не найден! Укажите MAX_BOT_TOKEN в настройках бота")
+    raise ValueError("Токен не найден! Укажите MAX_BOT_TOKEN в настройках бота на Bothost")
 
-API_BASE = "https://api.max.ru/bot/v1"
-HEADERS = {
-    "Authorization": f"Bearer {BOT_TOKEN}",
-    "Content-Type": "application/json"
-}
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
 
-async def send_message(chat_id, text):
-    """Отправка сообщения пользователю"""
-    async with ClientSession() as session:
-        url = f"{API_BASE}/messages/send"
-        payload = {
-            "chat_id": chat_id,
-            "text": text
-        }
-        async with session.post(url, headers=HEADERS, json=payload) as resp:
-            if resp.status != 200:
-                print(f"Ошибка отправки: {resp.status}")
+@dp.bot_started()
+async def handle_start(event: BotStarted):
+    await bot.send_message(
+        chat_id=event.chat_id,
+        text="Привет! Я пока не умею отвечать на вопросы, но уже работаю.",
+    )
 
-async def get_updates(offset=0):
-    """Получение новых сообщений (Long Polling)"""
-    async with ClientSession() as session:
-        url = f"{API_BASE}/updates/get"
-        params = {
-            "offset": offset,
-            "timeout": 30
-        }
-        async with session.get(url, headers=HEADERS, params=params) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                return data.get("updates", [])
-            else:
-                print(f"Ошибка получения обновлений: {resp.status}")
-                return []
+@dp.message_created(Command("start"))
+async def cmd_start(event: MessageCreated):
+    await event.message.answer(
+        "📚 Я репетитор по математике 5-9 классов.\n"
+        "Пришли любую задачу — объясню по шагам.\n\n"
+        "🔹 Бесплатно: 5 задач в день\n"
+        "🔹 Подписка: 399₽/мес, безлимит"
+    )
 
-async def handle_update(update):
-    """Обработка одного обновления"""
-    # Проверяем, есть ли сообщение
-    message = update.get("message")
-    if not message:
-        return
-    
-    # Получаем chat_id и текст
-    chat_id = message.get("chat", {}).get("id")
-    text = message.get("text", "")
-    
-    if not chat_id:
-        return
-    
-    # Обработка команды /start
-    if text == "/start":
-        await send_message(chat_id, 
-            "📚 Я репетитор по математике 5-9 классов.\n"
-            "Пришли любую задачу — объясню по шагам.\n\n"
-            "🔹 Бесплатно: 5 задач в день\n"
-            "🔹 Подписка: 399₽/мес, безлимит"
-        )
-        return
-    
-    # Ответ на любое другое сообщение
-    if text:
-        await send_message(chat_id, f"Ты написал: {text}\n\nРешаю... (скоро добавлю решение)")
-    else:
-        await send_message(chat_id, "Получил сообщение, но текст не распознан")
+@dp.message_created()
+async def handle_message(event: MessageCreated):
+    user_text = event.message.text
+    await event.message.answer(f"Ты написал: {user_text}\n\nРешаю... (скоро добавлю решение)")
 
 async def main():
-    print("Бот запущен, жду сообщений...")
-    offset = 0
-    while True:
-        updates = await get_updates(offset)
-        for update in updates:
-            await handle_update(update)
-            # Обновляем offset, чтобы не получать одни и те же сообщения
-            offset = update.get("update_id", offset) + 1
-        await asyncio.sleep(1)
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
