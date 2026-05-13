@@ -1,25 +1,51 @@
+# Подключаем библиотеку для асинхронного программирования
 import asyncio
+# Подключаем библиотеку для работы с переменными окружения (токен будет храниться там)
 import os
+
+# Импортируем необходимые классы из библиотеки maxapi
+# Bot — основной класс для работы с API, Dispatcher — для маршрутизации событий
 from maxapi import Bot, Dispatcher
+# Импортируем типы событий, которые будет обрабатывать бот
+# BotStarted — когда пользователь нажал "Начать", Command — фильтр для команд, MessageCreated — новое сообщение
 from maxapi.types import BotStarted, Command, MessageCreated
 
+# --- 1. ИНИЦИАЛИЗАЦИЯ И ПОЛУЧЕНИЕ ТОКЕНА ---
+
+# Получаем токен бота из переменных окружения.
+# На платформе Bothost вы указали этот токен в поле "Bot Token" при создании бота.
+# Теперь код его подхватывает и сохраняет в переменную BOT_TOKEN.
 BOT_TOKEN = os.getenv("MAX_BOT_TOKEN")
 
+# Проверка: если токен не найден, программа выдаст ошибку и остановится.
 if not BOT_TOKEN:
-    raise ValueError("Токен не найден!")
+    raise ValueError("Токен не найден! Укажите MAX_BOT_TOKEN в настройках бота на Bothost")
 
+# Создаем экземпляр бота, передавая ему токен для аутентификации.
 bot = Bot(token=BOT_TOKEN)
+# Создаем диспетчер, который будет направлять входящие события в нужные функции-обработчики.
 dp = Dispatcher()
 
+# --- 2. ОБРАБОТЧИКИ СОБЫТИЙ (ХЭНДЛЕРЫ) ---
+
+# Обработчик события "bot_started" (когда пользователь впервые нажал "Начать" или "/start").
+# Декоратор @dp.bot_started() регистрирует эту функцию для обработки данного типа событий.
 @dp.bot_started()
 async def handle_start(event: BotStarted):
+    # Функция отправляет простое приветственное сообщение.
+    # event.chat_id содержит уникальный идентификатор чата с этим пользователем.
     await bot.send_message(
         chat_id=event.chat_id,
-        text="Привет! Я репетитор по математике.",
+        text="Привет! Я пока не умею отвечать на вопросы, но уже работаю.",
     )
 
+# Обработчик команды "/start".
+# Декоратор @dp.message_created(Command("start")) означает, что функция будет вызвана,
+# когда придет новое сообщение, и это сообщение является командой "start".
 @dp.message_created(Command("start"))
 async def cmd_start(event: MessageCreated):
+    # Отправляем подробное приветственное сообщение с описанием тарифов.
+    # event.message.answer() — это удобный метод для ответа в тот же чат.
     await event.message.answer(
         "📚 Я репетитор по математике 5-9 классов.\n"
         "Пришли любую задачу — объясню по шагам.\n\n"
@@ -27,33 +53,45 @@ async def cmd_start(event: MessageCreated):
         "🔹 Подписка: 399₽/мес, безлимит"
     )
 
+# Обработчик всех остальных текстовых сообщений (которые не являются командой "/start").
+# Декоратор @dp.message_created() без аргументов перехватывает все новые сообщения.
 @dp.message_created()
 async def handle_message(event: MessageCreated):
-    # Пытаемся получить текст из разных возможных мест
+    # Ключевая часть: пытаемся извлечь текст сообщения пользователя.
+    # В разных версиях библиотеки maxapi текст может лежать в разных полях.
+    # Этот код проверяет несколько возможных мест, где может находиться текст.
     user_text = None
     
-    # Способ 1: напрямую как атрибут
-    if hasattr(event.message, 'text'):
+    # Способ 1: текст может быть в поле data у самого события event
+    if hasattr(event, 'data') and hasattr(event.data, 'text'):
+        user_text = event.data.text
+    # Способ 2: текст может быть в поле data у объекта event.message
+    elif hasattr(event.message, 'data') and hasattr(event.message.data, 'text'):
+        user_text = event.message.data.text
+    # Способ 3: текст может быть просто в поле text объекта event.message
+    elif hasattr(event.message, 'text'):
         user_text = event.message.text
-    # Способ 2: в словаре data
-    elif hasattr(event.message, 'data') and isinstance(event.message.data, dict):
-        user_text = event.message.data.get('text')
-    # Способ 3: в атрибуте content
-    elif hasattr(event.message, 'content'):
-        user_text = event.message.content
     
-    # Если текст не найден — выводим всю структуру в лог
+    # Если текст не найден ни в одном из предполагаемых мест:
     if not user_text:
-        print(f"Структура message: {dir(event.message)}")
-        if hasattr(event.message, 'data'):
-            print(f"data: {event.message.data}")
+        # Отправляем пользователю сообщение об ошибке
         await event.message.answer("Получил сообщение, но не могу прочитать текст")
+        # (Для отладки можно было бы вывести структуру в консоль, но для чистоты кода мы это убрали)
         return
     
+    # Если текст успешно получен, отправляем ответное сообщение.
+    # Пока это просто эхо, позже мы заменим этот вызов на обращение к YandexGPT.
     await event.message.answer(f"Ты написал: {user_text}\n\nРешаю... (скоро добавлю решение)")
 
+# --- 3. ЗАПУСК БОТА ---
+
+# Основная асинхронная функция, которая запускает бесконечный процесс опроса (Long Polling).
 async def main():
+    # dp.start_polling(bot) — запускает цикл получения обновлений от MAX API.
+    # Бот будет висеть в этом цикле вечно, обрабатывая сообщения.
     await dp.start_polling(bot)
 
+# Точка входа в программу. Если этот файл запущен как основной скрипт (а не импортирован как модуль),
+# то выполняется asyncio.run(main()), который запускает асинхронную главную функцию.
 if __name__ == "__main__":
     asyncio.run(main())
