@@ -3,16 +3,24 @@ import os
 from maxapi import Bot
 
 BOT_TOKEN = os.getenv("MAX_BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("Токен не найден!")
+
 bot = Bot(token=BOT_TOKEN)
 
 async def main():
     me = await bot.get_me()
     print(f"Бот {me.username} запущен")
     
-    # Long Polling цикл
     offset = 0
     while True:
-        updates = await bot.get_updates(offset=offset, timeout=30)
+        # Пытаемся получить обновления. Если offset не поддерживается, убираем его.
+        try:
+            updates = await bot.get_updates(timeout=30)
+        except TypeError:
+            # Если ошибка повторяется, пробуем без аргументов
+            updates = await bot.get_updates()
+        
         for update in updates:
             if "message" in update:
                 message = update["message"]
@@ -32,7 +40,11 @@ async def main():
                         chat_id,
                         f"Ты написал: {text}\n\nРешаю... (скоро добавлю решение)"
                     )
-            offset = update["update_id"] + 1
+            # Обновляем offset, если есть update_id
+            if "update_id" in update:
+                offset = update["update_id"] + 1
+        
+        await asyncio.sleep(1)
 
 if __name__ == "__main__":
     asyncio.run(main())
