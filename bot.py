@@ -1,51 +1,83 @@
-# Подключаем библиотеку для асинхронного программирования
 import asyncio
-# Подключаем библиотеку для работы с переменными окружения (токен будет храниться там)
 import os
-
-# Импортируем необходимые классы из библиотеки maxapi
-# Bot — основной класс для работы с API, Dispatcher — для маршрутизации событий
+import json
 from maxapi import Bot, Dispatcher
-# Импортируем типы событий, которые будет обрабатывать бот
-# BotStarted — когда пользователь нажал "Начать", Command — фильтр для команд, MessageCreated — новое сообщение
 from maxapi.types import BotStarted, Command, MessageCreated
+from aiohttp import ClientSession
 
-# --- 1. ИНИЦИАЛИЗАЦИЯ И ПОЛУЧЕНИЕ ТОКЕНА ---
+# --- 1. НАСТРОЙКИ YANDEXGPT ---
+# Сюда вы вставите свои данные из Yandex Cloud
+FOLDER_ID = "ВАШ_ID_КАТАЛОГА"      # Идентификатор каталога
+API_KEY = "ВАШ_API_КЛЮЧ"           # API-ключ сервисного аккаунта
 
-# Получаем токен бота из переменных окружения.
-# На платформе Bothost вы указали этот токен в поле "Bot Token" при создании бота.
-# Теперь код его подхватывает и сохраняет в переменную BOT_TOKEN.
+# Адрес модели YandexGPT 5.1 Pro
+MODEL_URI = f"gpt://{FOLDER_ID}/yandexgpt-5.1-pro/latest"
+
+# --- 2. НАСТРОЙКИ БОТА ---
 BOT_TOKEN = os.getenv("MAX_BOT_TOKEN")
-
-# Проверка: если токен не найден, программа выдаст ошибку и остановится.
 if not BOT_TOKEN:
-    raise ValueError("Токен не найден! Укажите MAX_BOT_TOKEN в настройках бота на Bothost")
+    raise ValueError("Токен не найден!")
 
-# Создаем экземпляр бота, передавая ему токен для аутентификации.
 bot = Bot(token=BOT_TOKEN)
-# Создаем диспетчер, который будет направлять входящие события в нужные функции-обработчики.
 dp = Dispatcher()
 
-# --- 2. ОБРАБОТЧИКИ СОБЫТИЙ (ХЭНДЛЕРЫ) ---
+# --- 3. ФУНКЦИЯ ЗАПРОСА К YANDEXGPT ---
+async def ask_yandexgpt(question: str) -> str:
+    """Отправляет вопрос в YandexGPT и возвращает ответ"""
+    
+    # Промпт, который настраивает модель быть хорошим репетитором
+    system_prompt = (
+        "Ты — репетитор по математике для учеников 5-9 классов. "
+        "Объясняй решение задач шаг за шагом, простыми словами. "
+        "Не давай сразу готовый ответ — сначала объясни ход мыслей. "
+        "Если ученик ошибся, мягко укажи на ошибку и помоги исправить."
+    )
+    
+    # Формируем тело запроса для API Яндекса
+    body = {
+        "modelUri": MODEL_URI,
+        "completionOptions": {
+            "stream": False,
+            "temperature": 0.7,     # Температура: чем выше, тем креативнее (0.5-0.9)
+            "maxTokens": 2000       # Максимальная длина ответа
+        },
+        "messages": [
+            {"role": "system", "text": system_prompt},
+            {"role": "user", "text": question}
+        ]
+    }
+    
+    headers = {
+        "Authorization": f"Api-Key {API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    async with ClientSession() as session:
+        async with session.post(
+            "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+            headers=headers,
+            json=body
+        ) as response:
+            if response.status != 200:
+                error_text = await response.text()
+                print(f"Ошибка YandexGPT: {response.status} - {error_text}")
+                return "Извините, у меня сейчас технические трудности. Попробуйте позже."
+            
+            result = await response.json()
+            # Извлекаем текст ответа из результата
+            return result["result"]["alternatives"][0]["message"]["text"]
 
-# Обработчик события "bot_started" (когда пользователь впервые нажал "Начать" или "/start").
-# Декоратор @dp.bot_started() регистрирует эту функцию для обработки данного типа событий.
+# --- 4. ОБРАБОТЧИКИ КОМАНД БОТА ---
+
 @dp.bot_started()
 async def handle_start(event: BotStarted):
-    # Функция отправляет простое приветственное сообщение.
-    # event.chat_id содержит уникальный идентификатор чата с этим пользователем.
     await bot.send_message(
         chat_id=event.chat_id,
-        text="Привет! Я пока не умею отвечать на вопросы, но уже работаю.",
+        text="Привет! Я новый умный репетитор по математике. Напиши /start, чтобы начать!"
     )
 
-# Обработчик команды "/start".
-# Декоратор @dp.message_created(Command("start")) означает, что функция будет вызвана,
-# когда придет новое сообщение, и это сообщение является командой "start".
 @dp.message_created(Command("start"))
 async def cmd_start(event: MessageCreated):
-    # Отправляем подробное приветственное сообщение с описанием тарифов.
-    # event.message.answer() — это удобный метод для ответа в тот же чат.
     await event.message.answer(
         "📚 Я репетитор по математике 5-9 классов.\n"
         "Пришли любую задачу — объясню по шагам.\n\n"
@@ -53,45 +85,33 @@ async def cmd_start(event: MessageCreated):
         "🔹 Подписка: 399₽/мес, безлимит"
     )
 
-# Обработчик всех остальных текстовых сообщений (которые не являются командой "/start").
-# Декоратор @dp.message_created() без аргументов перехватывает все новые сообщения.
 @dp.message_created()
 async def handle_message(event: MessageCreated):
-    # Ключевая часть: пытаемся извлечь текст сообщения пользователя.
-    # В разных версиях библиотеки maxapi текст может лежать в разных полях.
-    # Этот код проверяет несколько возможных мест, где может находиться текст.
+    # Получаем текст сообщения пользователя
     user_text = None
-    
-    # Способ 1: текст может быть в поле data у самого события event
     if hasattr(event, 'data') and hasattr(event.data, 'text'):
         user_text = event.data.text
-    # Способ 2: текст может быть в поле data у объекта event.message
     elif hasattr(event.message, 'data') and hasattr(event.message.data, 'text'):
         user_text = event.message.data.text
-    # Способ 3: текст может быть просто в поле text объекта event.message
     elif hasattr(event.message, 'text'):
         user_text = event.message.text
     
-    # Если текст не найден ни в одном из предполагаемых мест:
     if not user_text:
-        # Отправляем пользователю сообщение об ошибке
-        await event.message.answer("Получил сообщение, но не могу прочитать текст")
-        # (Для отладки можно было бы вывести структуру в консоль, но для чистоты кода мы это убрали)
+        await event.message.answer("Не могу прочитать сообщение. Попробуйте написать текстом.")
         return
     
-    # Если текст успешно получен, отправляем ответное сообщение.
-    # Пока это просто эхо, позже мы заменим этот вызов на обращение к YandexGPT.
-    await event.message.answer(f"Ты написал: {user_text}\n\nРешаю... (скоро добавлю решение)")
+    # Отправляем уведомление, что бот думает (чтобы пользователь не ждал в тишине)
+    await event.message.answer("🤔 Думаю над решением...")
+    
+    # Получаем ответ от YandexGPT
+    answer = await ask_yandexgpt(user_text)
+    
+    # Отправляем ответ пользователю
+    await event.message.answer(answer)
 
-# --- 3. ЗАПУСК БОТА ---
-
-# Основная асинхронная функция, которая запускает бесконечный процесс опроса (Long Polling).
+# --- 5. ЗАПУСК БОТА ---
 async def main():
-    # dp.start_polling(bot) — запускает цикл получения обновлений от MAX API.
-    # Бот будет висеть в этом цикле вечно, обрабатывая сообщения.
     await dp.start_polling(bot)
 
-# Точка входа в программу. Если этот файл запущен как основной скрипт (а не импортирован как модуль),
-# то выполняется asyncio.run(main()), который запускает асинхронную главную функцию.
 if __name__ == "__main__":
     asyncio.run(main())
