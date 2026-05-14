@@ -26,8 +26,7 @@ dp = Dispatcher()
 
 async def ask_yandexgpt(question) -> str:
     """
-    Отправляет вопрос в YandexGPT и возвращает ответ.
-    Параметр question может быть строкой или объектом MessageBody.
+    Отправляет вопрос в YandexGPT 5.1 Pro и возвращает ответ.
     """
     # --- 1. Извлекаем чистый текст из вопроса ---
     if hasattr(question, 'text'):
@@ -44,10 +43,11 @@ async def ask_yandexgpt(question) -> str:
     if not clean_text:
         return "Сообщение пустое. Напишите, пожалуйста, задачу или вопрос."
     
-    # Логируем начало обработки
-    print(f"🔍 Обработка вопроса: {clean_text[:50]}...")
+    # --- 2. Формируем правильный URI для модели (КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ!) ---
+    # Для YandexGPT 5.1 Pro используется суффикс /rc [citation:2]
+    # Если используете другую модель, измените эту строку
+    model_uri = f"gpt://{FOLDER_ID}/yandexgpt/rc"
     
-    # --- 2. Формируем запрос к YandexGPT ---
     system_prompt = (
         "Ты — репетитор по математике для учеников 5-9 классов. "
         "Объясняй решение задач шаг за шагом, простыми словами. "
@@ -55,8 +55,9 @@ async def ask_yandexgpt(question) -> str:
         "Если ученик ошибся, мягко укажи на ошибку и помоги исправить."
     )
     
+    # Формируем тело запроса строго по документации [citation:2]
     request_body = {
-        "modelUri": MODEL_URI,
+        "modelUri": model_uri,
         "completionOptions": {
             "stream": False,
             "temperature": 0.7,
@@ -68,37 +69,33 @@ async def ask_yandexgpt(question) -> str:
         ]
     }
     
+    # ВАЖНО: Добавляем заголовок x-folder-id! [citation:2]
     headers = {
         "Authorization": f"Api-Key {API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-folder-id": FOLDER_ID      # <-- ОБЯЗАТЕЛЬНЫЙ ЗАГОЛОВОК
     }
     
     url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
     
-    # --- 3. Отправляем запрос ---
     try:
-        print("📤 Отправка запроса в YandexGPT...")
         async with ClientSession() as session:
             timeout = ClientTimeout(total=30)
             async with session.post(url, headers=headers, json=request_body, timeout=timeout) as response:
-                print(f"📥 Статус ответа: {response.status}")
-                
                 if response.status != 200:
                     error_text = await response.text()
-                    print(f"❌ Ошибка YandexGPT: {response.status} - {error_text}")
-                    return f"Ошибка при обращении к YandexGPT (статус {response.status}). Проверьте настройки в Yandex Cloud."
+                    return f"Ошибка YandexGPT ({response.status}): {error_text[:200]}"
                 
                 result = await response.json()
                 answer = result["result"]["alternatives"][0]["message"]["text"]
-                print(f"✅ Ответ получен, длина: {len(answer)} символов")
                 return answer
                 
     except asyncio.TimeoutError:
-        print("❌ Таймаут при запросе к YandexGPT")
         return "Превышено время ожидания ответа от YandexGPT. Попробуйте позже."
     except Exception as e:
-        print(f"❌ Непредвиденная ошибка: {type(e).__name__}: {e}")
         return f"Техническая ошибка: {type(e).__name__}. Попробуйте позже."
+
+
 # ======================== 3. ОБРАБОТЧИКИ СООБЩЕНИЙ ========================
 
 @dp.bot_started()
