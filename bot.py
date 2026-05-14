@@ -25,52 +25,9 @@ dp = Dispatcher()
 # ======================== 2. ФУНКЦИЯ ЗАПРОСА К YANDEXGPT ========================
 
 async def ask_yandexgpt(question: str) -> str:
-    """Отправляет вопрос в YandexGPT и возвращает ответ"""
-    
-    # Убеждаемся, что question — обычная строка
-    if hasattr(question, 'text'):
-        question_text = question.text
-    else:
-        question_text = str(question)
-    
-    system_prompt = (
-        "Ты — репетитор по математике для учеников 5-9 классов. "
-        "Объясняй решение задач шаг за шагом, простыми словами. "
-        "Не давай сразу готовый ответ — сначала объясни ход мыслей. "
-        "Если ученик ошибся, мягко укажи на ошибку и помоги исправить."
-    )
-    
-    # Формируем тело запроса — явно как словарь Python, без объектов maxapi
-    request_body = {
-        "modelUri": MODEL_URI,
-        "completionOptions": {
-            "stream": False,
-            "temperature": 0.7,
-            "maxTokens": 2000
-        },
-        "messages": [
-            {"role": "system", "text": system_prompt},
-            {"role": "user", "text": question_text}
-        ]
-    }
-    
-    headers = {
-        "Authorization": f"Api-Key {API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
-    
-    async with ClientSession() as session:
-        timeout = ClientTimeout(total=30)
-        async with session.post(url, headers=headers, json=request_body, timeout=timeout) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                print(f"Ошибка YandexGPT: {response.status} - {error_text}")
-                return "Извините, у меня сейчас технические трудности. Попробуйте позже."
-            
-            result = await response.json()
-            return result["result"]["alternatives"][0]["message"]["text"]
+    """ВРЕМЕННАЯ ФУНКЦИЯ ДЛЯ ДИАГНОСТИКИ"""
+    # Просто возвращаем текст, который получили
+    return f"Я получил твой вопрос: «{question}». Сейчас YandexGPT временно отключён для диагностики."
 
 # ======================== 3. ОБРАБОТЧИКИ СООБЩЕНИЙ ========================
 
