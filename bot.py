@@ -30,26 +30,24 @@ async def ask_yandexgpt(question) -> str:
     Параметр question может быть строкой или объектом MessageBody.
     """
     # --- 1. Извлекаем чистый текст из вопроса ---
-    # Если question — это объект MessageBody (как в вашем случае)
     if hasattr(question, 'text'):
         clean_text = question.text
-    # Если question — обычная строка
     elif isinstance(question, str):
         clean_text = question
-    # Если question — словарь (резервный вариант)
     elif isinstance(question, dict) and 'text' in question:
         clean_text = question['text']
     else:
-        clean_text = str(question)  # на крайний случай
+        clean_text = str(question)
     
-    # Убираем возможные лишние пробелы
     clean_text = clean_text.strip()
     
-    # --- 2. Если текст пустой — сообщаем об ошибке ---
     if not clean_text:
         return "Сообщение пустое. Напишите, пожалуйста, задачу или вопрос."
     
-    # --- 3. Формируем запрос к YandexGPT ---
+    # Логируем начало обработки
+    print(f"🔍 Обработка вопроса: {clean_text[:50]}...")
+    
+    # --- 2. Формируем запрос к YandexGPT ---
     system_prompt = (
         "Ты — репетитор по математике для учеников 5-9 классов. "
         "Объясняй решение задач шаг за шагом, простыми словами. "
@@ -66,7 +64,7 @@ async def ask_yandexgpt(question) -> str:
         },
         "messages": [
             {"role": "system", "text": system_prompt},
-            {"role": "user", "text": clean_text}   # <-- передаём чистый текст
+            {"role": "user", "text": clean_text}
         ]
     }
     
@@ -77,18 +75,30 @@ async def ask_yandexgpt(question) -> str:
     
     url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
     
-    async with ClientSession() as session:
-        timeout = ClientTimeout(total=30)
-        async with session.post(url, headers=headers, json=request_body, timeout=timeout) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                print(f"Ошибка YandexGPT: {response.status} - {error_text}")
-                return f"Ошибка при обращении к YandexGPT (статус {response.status}). Проверьте настройки."
-            
-            result = await response.json()
-            answer = result["result"]["alternatives"][0]["message"]["text"]
-            return answer
-
+    # --- 3. Отправляем запрос ---
+    try:
+        print("📤 Отправка запроса в YandexGPT...")
+        async with ClientSession() as session:
+            timeout = ClientTimeout(total=30)
+            async with session.post(url, headers=headers, json=request_body, timeout=timeout) as response:
+                print(f"📥 Статус ответа: {response.status}")
+                
+                if response.status != 200:
+                    error_text = await response.text()
+                    print(f"❌ Ошибка YandexGPT: {response.status} - {error_text}")
+                    return f"Ошибка при обращении к YandexGPT (статус {response.status}). Проверьте настройки в Yandex Cloud."
+                
+                result = await response.json()
+                answer = result["result"]["alternatives"][0]["message"]["text"]
+                print(f"✅ Ответ получен, длина: {len(answer)} символов")
+                return answer
+                
+    except asyncio.TimeoutError:
+        print("❌ Таймаут при запросе к YandexGPT")
+        return "Превышено время ожидания ответа от YandexGPT. Попробуйте позже."
+    except Exception as e:
+        print(f"❌ Непредвиденная ошибка: {type(e).__name__}: {e}")
+        return f"Техническая ошибка: {type(e).__name__}. Попробуйте позже."
 # ======================== 3. ОБРАБОТЧИКИ СООБЩЕНИЙ ========================
 
 @dp.bot_started()
