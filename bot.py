@@ -24,10 +24,70 @@ dp = Dispatcher()
 
 # ======================== 2. ФУНКЦИЯ ЗАПРОСА К YANDEXGPT ========================
 
-async def ask_yandexgpt(question: str) -> str:
-    """ВРЕМЕННАЯ ФУНКЦИЯ ДЛЯ ДИАГНОСТИКИ"""
-    # Просто возвращаем текст, который получили
-    return f"Я получил твой вопрос: «{question}». Сейчас YandexGPT временно отключён для диагностики."
+async def ask_yandexgpt(question) -> str:
+    """
+    Отправляет вопрос в YandexGPT и возвращает ответ.
+    Параметр question может быть строкой или объектом MessageBody.
+    """
+    # --- 1. Извлекаем чистый текст из вопроса ---
+    # Если question — это объект MessageBody (как в вашем случае)
+    if hasattr(question, 'text'):
+        clean_text = question.text
+    # Если question — обычная строка
+    elif isinstance(question, str):
+        clean_text = question
+    # Если question — словарь (резервный вариант)
+    elif isinstance(question, dict) and 'text' in question:
+        clean_text = question['text']
+    else:
+        clean_text = str(question)  # на крайний случай
+    
+    # Убираем возможные лишние пробелы
+    clean_text = clean_text.strip()
+    
+    # --- 2. Если текст пустой — сообщаем об ошибке ---
+    if not clean_text:
+        return "Сообщение пустое. Напишите, пожалуйста, задачу или вопрос."
+    
+    # --- 3. Формируем запрос к YandexGPT ---
+    system_prompt = (
+        "Ты — репетитор по математике для учеников 5-9 классов. "
+        "Объясняй решение задач шаг за шагом, простыми словами. "
+        "Не давай сразу готовый ответ — сначала объясни ход мыслей. "
+        "Если ученик ошибся, мягко укажи на ошибку и помоги исправить."
+    )
+    
+    request_body = {
+        "modelUri": MODEL_URI,
+        "completionOptions": {
+            "stream": False,
+            "temperature": 0.7,
+            "maxTokens": 2000
+        },
+        "messages": [
+            {"role": "system", "text": system_prompt},
+            {"role": "user", "text": clean_text}   # <-- передаём чистый текст
+        ]
+    }
+    
+    headers = {
+        "Authorization": f"Api-Key {API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+    
+    async with ClientSession() as session:
+        timeout = ClientTimeout(total=30)
+        async with session.post(url, headers=headers, json=request_body, timeout=timeout) as response:
+            if response.status != 200:
+                error_text = await response.text()
+                print(f"Ошибка YandexGPT: {response.status} - {error_text}")
+                return f"Ошибка при обращении к YandexGPT (статус {response.status}). Проверьте настройки."
+            
+            result = await response.json()
+            answer = result["result"]["alternatives"][0]["message"]["text"]
+            return answer
 
 # ======================== 3. ОБРАБОТЧИКИ СООБЩЕНИЙ ========================
 
