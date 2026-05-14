@@ -7,8 +7,11 @@ from aiohttp import ClientSession
 
 # --- 1. НАСТРОЙКИ YANDEXGPT ---
 # Сюда вы вставите свои данные из Yandex Cloud
-FOLDER_ID = "ВАШ_ID_КАТАЛОГА"      # Идентификатор каталога
-API_KEY = "ВАШ_API_КЛЮЧ"           # API-ключ сервисного аккаунта
+#FOLDER_ID = ""      # Идентификатор каталога
+#API_KEY = ""           # API-ключ сервисного аккаунта
+
+FOLDER_ID = os.getenv("FOLDER_ID")
+API_KEY = os.getenv("YANDEXGPT_API_KEY")
 
 # Адрес модели YandexGPT 5.1 Pro
 MODEL_URI = f"gpt://{FOLDER_ID}/yandexgpt-5.1-pro/latest"
