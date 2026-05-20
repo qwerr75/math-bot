@@ -1,4 +1,3 @@
-#-----------------------------20/49
 import asyncio
 import os
 import re
@@ -27,13 +26,26 @@ MODEL_URI = f"gpt://{FOLDER_ID}/yandexgpt/rc"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Кэш для формул
 CACHE_DIR = "cache/math"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 LATEX_PATTERN = r'(\$\$.*?\$\$|\\\(.*?\\\))'
 
-# ======================== 2. ФУНКЦИИ ДЛЯ ФОРМУЛ ========================
+# ======================== 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ========================
+
+def get_chat_id_from_message(message) -> int:
+    """Извлекает chat_id из сообщения (рабочий способ из старого кода)"""
+    # Пробуем разные варианты
+    if hasattr(message, 'chat_id'):
+        return message.chat_id
+    if hasattr(message, 'chat') and hasattr(message.chat, 'id'):
+        return message.chat.id
+    # Если сообщение пришло из чата с ботом
+    if hasattr(message, 'sender') and hasattr(message.sender, 'chat_id'):
+        return message.sender.chat_id
+    raise AttributeError("Не удалось определить chat_id")
+
+# ======================== 3. ФУНКЦИИ ДЛЯ ФОРМУЛ ========================
 
 async def render_latex_to_image(latex_code: str) -> bytes:
     encoded = quote(latex_code)
@@ -45,6 +57,7 @@ async def render_latex_to_image(latex_code: str) -> bytes:
             raise Exception(f"CodeCogs error: {resp.status}")
 
 async def send_math(chat_id: int, latex_code: str, caption: str = ""):
+    """Отправляет картинку с формулой"""
     clean_latex = latex_code.strip()
     if clean_latex.startswith("\\(") and clean_latex.endswith("\\)"):
         clean_latex = clean_latex[2:-2]
@@ -65,10 +78,11 @@ async def send_math(chat_id: int, latex_code: str, caption: str = ""):
         with open(cache_path, "wb") as f:
             f.write(img)
         await bot.send_photo(chat_id, photo=img, caption=caption)
-    except Exception:
+    except Exception as e:
         await bot.send_message(chat_id, f"⚠️ Формула: {clean_latex}\n{caption}")
 
 async def send_text_with_formulas(chat_id: int, text: str):
+    """Отправляет текст, заменяя формулы на картинки"""
     parts = re.split(LATEX_PATTERN, text, flags=re.DOTALL)
     for part in parts:
         if not part:
@@ -78,7 +92,7 @@ async def send_text_with_formulas(chat_id: int, text: str):
         else:
             await bot.send_message(chat_id, part)
 
-# ======================== 3. YANDEXGPT (как в старом коде) ========================
+# ======================== 4. YANDEXGPT ========================
 
 async def ask_yandexgpt(question) -> str:
     if hasattr(question, 'text'):
@@ -142,7 +156,7 @@ async def ask_yandexgpt(question) -> str:
         print(f"❌ Исключение: {type(e).__name__}: {e}")
         return f"Техническая ошибка: {type(e).__name__}"
 
-# ======================== 4. ОБРАБОТЧИКИ (как в старом коде) ========================
+# ======================== 5. ОБРАБОТЧИКИ ========================
 
 @dp.bot_started()
 async def handle_start(event: BotStarted):
@@ -170,12 +184,16 @@ async def handle_message(event: MessageCreated):
     await event.message.answer("🤔 Думаю над решением...")
     answer = await ask_yandexgpt(user_text)
     
-    # Отправляем ответ с заменой формул на картинки
-    # Нужно получить chat_id — берём его из события (event.chat_id)
-    chat_id = event.chat_id
+    # Получаем chat_id из сообщения
+    try:
+        chat_id = get_chat_id_from_message(event.message)
+    except AttributeError:
+        await event.message.answer("Не удалось определить чат для отправки формулы.")
+        return
+    
     await send_text_with_formulas(chat_id, answer)
 
-# ======================== 5. ЗАПУСК ========================
+# ======================== 6. ЗАПУСК ========================
 
 async def main():
     await dp.start_polling(bot)
