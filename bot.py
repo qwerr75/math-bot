@@ -1,4 +1,4 @@
-# ======================== 1
+# ======================== 122
 import asyncio
 import os
 import re
@@ -30,13 +30,11 @@ dp = Dispatcher()
 CACHE_DIR = "cache/math"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# Регулярное выражение для поиска формул в LaTeX-обёртках
 LATEX_PATTERN = r'(\$\$.*?\$\$|\\\(.*?\\\))'
 
 # ======================== 2. ФУНКЦИИ ДЛЯ ФОРМУЛ ========================
 
 async def render_latex_to_image(latex_code: str) -> bytes:
-    """Превращает LaTeX-код в PNG-картинку через CodeCogs"""
     encoded = quote(latex_code)
     url = f"https://latex.codecogs.com/png.image?\\large {encoded}"
     async with aiohttp.ClientSession() as session:
@@ -46,72 +44,37 @@ async def render_latex_to_image(latex_code: str) -> bytes:
             raise Exception(f"CodeCogs error: {resp.status}")
 
 async def send_math(event, latex_code: str, caption: str = ""):
-    """Отправляет картинку с формулой, используя event"""
-    print(f"🔍 send_math вызван с: {latex_code}")
-    
-    # Очищаем от ограничителей
     clean_latex = latex_code.strip()
     if clean_latex.startswith("\\(") and clean_latex.endswith("\\)"):
         clean_latex = clean_latex[2:-2]
     elif clean_latex.startswith("$$") and clean_latex.endswith("$$"):
         clean_latex = clean_latex[2:-2]
     
-    print(f"🔍 Очищенный LaTeX: {clean_latex}")
-    
-    # Кэширование
     hash_name = hashlib.md5(clean_latex.encode()).hexdigest()
     cache_path = os.path.join(CACHE_DIR, f"{hash_name}.png")
     
-    print(f"🔍 Путь к кэшу: {cache_path}")
-    print(f"🔍 Файл существует: {os.path.exists(cache_path)}")
-    
-    # Если есть в кэше — отправляем
     if os.path.exists(cache_path):
-        print("📁 Файл найден в кэше, отправляю...")
         with open(cache_path, "rb") as f:
             img = f.read()
-        try:
-            await event.message.answer_photo(photo=img, caption=caption)
-            print("✅ Отправлено через answer_photo")
-        except Exception as e:
-            print(f"❌ Ошибка answer_photo: {e}")
-            # Пробуем через bot.send_photo
-            try:
-                chat_id = event.message.recipient.chat_id
-                await bot.send_photo(chat_id, photo=img, caption=caption)
-                print("✅ Отправлено через bot.send_photo")
-            except Exception as e2:
-                print(f"❌ Ошибка bot.send_photo: {e2}")
-                await event.message.answer(f"⚠️ Не удалось отправить картинку")
+        await event.message.answer_photo(photo=img, caption=caption)
         return
     
-    # Нет в кэше — генерируем
-    print("🖼️ Файла нет в кэше, генерирую через CodeCogs...")
     try:
         img = await render_latex_to_image(clean_latex)
-        print(f"✅ Картинка получена, размер: {len(img)} байт")
         with open(cache_path, "wb") as f:
             f.write(img)
-        print(f"💾 Картинка сохранена в {cache_path}")
         await event.message.answer_photo(photo=img, caption=caption)
-        print("✅ Отправлено через answer_photo")
-    except Exception as e:
-        print(f"❌ Ошибка генерации или отправки: {e}")
-        await event.message.answer(f"⚠️ Формула: {clean_latex}\n{caption}")
+    except Exception:
+        await event.message.answer(clean_latex)
 
 async def send_text_with_formulas(event, text: str):
-    """Отправляет текст, заменяя формулы на картинки"""
-    print(f"🔍 send_text_with_formulas получил: {text[:200]}...")
     parts = re.split(LATEX_PATTERN, text, flags=re.DOTALL)
-    print(f"🔍 Найдено частей: {len(parts)}")
-    for i, part in enumerate(parts):
+    for part in parts:
         if not part:
             continue
         if part.startswith("\\(") or part.startswith("$$"):
-            print(f"  Часть {i}: ФОРМУЛА -> {part[:50]}")
             await send_math(event, part)
         else:
-            print(f"  Часть {i}: ТЕКСТ -> {part[:50]}")
             await event.message.answer(part)
 
 # ======================== 3. YANDEXGPT ========================
@@ -137,8 +100,7 @@ async def ask_yandexgpt(question) -> str:
         "Если ученик ошибся, мягко укажи на ошибку и помоги исправить.\n\n"
         "ВАЖНО: Все математические формулы и выражения оборачивай в LaTeX-теги: "
         "внутри строки используй \\( ... \\), для отдельных выражений — $$ ... $$. "
-        "Например: \\(x^2 = 4\\), а не x^2 = 4. Дроби пиши как \\(\\frac{a}{b}\\). "
-        "Корни как \\(\\sqrt{x}\\)."
+        "Например: \\(x^2 = 4\\), а не x^2 = 4."
     )
     
     request_body = {
@@ -172,16 +134,16 @@ async def ask_yandexgpt(question) -> str:
                     return f"Ошибка YandexGPT (статус {response.status}). Проверьте настройки."
                 result = await response.json()
                 answer = result["result"]["alternatives"][0]["message"]["text"]
-                print(f"✅ Ответ YandexGPT получен, длина: {len(answer)}")
+                print(f"✅ Ответ получен, длина: {len(answer)}")
                 return answer
     except asyncio.TimeoutError:
-        print("❌ Таймаут YandexGPT")
+        print("❌ Таймаут")
         return "Превышено время ожидания. Попробуйте позже."
     except Exception as e:
-        print(f"❌ Исключение YandexGPT: {type(e).__name__}: {e}")
+        print(f"❌ Исключение: {type(e).__name__}: {e}")
         return f"Техническая ошибка: {type(e).__name__}"
 
-# ======================== 4. ОБРАБОТЧИКИ СООБЩЕНИЙ ========================
+# ======================== 4. ОБРАБОТЧИКИ ========================
 
 @dp.bot_started()
 async def handle_start(event: BotStarted):
@@ -201,7 +163,12 @@ async def cmd_start(event: MessageCreated):
 
 @dp.message_created()
 async def handle_message(event: MessageCreated):
-    user_text = event.message.body if hasattr(event.message, 'body') else None
+    # Получаем текст из body.text
+    if hasattr(event.message, 'body') and hasattr(event.message.body, 'text'):
+        user_text = event.message.body.text
+    else:
+        user_text = None
+    
     if not user_text:
         await event.message.answer("Не могу прочитать сообщение.")
         return
