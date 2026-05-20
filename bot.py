@@ -43,7 +43,7 @@ async def render_latex_to_image(latex_code: str) -> bytes:
                 return await resp.read()
             raise Exception(f"CodeCogs error: {resp.status}")
 
-async def send_math(event, latex_code: str, caption: str = ""):
+async def send_math(chat_id: int, latex_code: str, caption: str = ""):
     clean_latex = latex_code.strip()
     if clean_latex.startswith("\\(") and clean_latex.endswith("\\)"):
         clean_latex = clean_latex[2:-2]
@@ -53,29 +53,30 @@ async def send_math(event, latex_code: str, caption: str = ""):
     hash_name = hashlib.md5(clean_latex.encode()).hexdigest()
     cache_path = os.path.join(CACHE_DIR, f"{hash_name}.png")
     
-    if os.path.exists(cache_path):
-        with open(cache_path, "rb") as f:
-            img = f.read()
-        await event.message.answer_photo(photo=img, caption=caption)
-        return
+    if not os.path.exists(cache_path):
+        try:
+            img = await render_latex_to_image(clean_latex)
+            with open(cache_path, "wb") as f:
+                f.write(img)
+        except Exception as e:
+            await bot.send_message(chat_id, f"⚠️ Ошибка генерации: {e}")
+            return
     
     try:
-        img = await render_latex_to_image(clean_latex)
-        with open(cache_path, "wb") as f:
-            f.write(img)
-        await event.message.answer_photo(photo=img, caption=caption)
-    except Exception:
-        await event.message.answer(clean_latex)
+        with open(cache_path, "rb") as f:
+            await bot.send_photo(chat_id, photo=f.read(), caption=caption)
+    except Exception as e:
+        await bot.send_message(chat_id, f"⚠️ Ошибка отправки: {e}")
 
-async def send_text_with_formulas(event, text: str):
+async def send_text_with_formulas(chat_id: int, text: str):
     parts = re.split(LATEX_PATTERN, text, flags=re.DOTALL)
     for part in parts:
         if not part:
             continue
         if part.startswith("\\(") or part.startswith("$$"):
-            await send_math(event, part)
+            await send_math(chat_id, part)
         else:
-            await event.message.answer(part)
+            await bot.send_message(chat_id, part)
 
 # ======================== 3. YANDEXGPT ========================
 
@@ -98,9 +99,8 @@ async def ask_yandexgpt(question) -> str:
         "Объясняй решение задач шаг за шагом, простыми словами. "
         "Не давай сразу готовый ответ — сначала объясни ход мыслей. "
         "Если ученик ошибся, мягко укажи на ошибку и помоги исправить.\n\n"
-        "ВАЖНО: Все математические формулы и выражения оборачивай в LaTeX-теги: "
-        "внутри строки используй \\( ... \\), для отдельных выражений — $$ ... $$. "
-        "Например: \\(x^2 = 4\\), а не x^2 = 4."
+        "ВАЖНО: Все формулы выводи ТОЛЬКО в LaTeX, обёрнутые в \\( ... \\). "
+        "Например: \\(x^2 = 4\\), \\(\\sqrt{4}\\). НЕ пиши x^2 = 4 без обёртки."
     )
     
     request_body = {
@@ -163,7 +163,6 @@ async def cmd_start(event: MessageCreated):
 
 @dp.message_created()
 async def handle_message(event: MessageCreated):
-    # Получаем текст из body.text
     if hasattr(event.message, 'body') and hasattr(event.message.body, 'text'):
         user_text = event.message.body.text
     else:
@@ -173,14 +172,16 @@ async def handle_message(event: MessageCreated):
         await event.message.answer("Не могу прочитать сообщение.")
         return
     
+    chat_id = event.message.recipient.chat_id
+    
     await event.message.answer("🤔 Думаю над решением...")
     answer = await ask_yandexgpt(user_text)
     
-    # Если в ответе нет LaTeX-обёрток, но есть ^ или = — принудительно оборачиваем
+    # Принудительно оборачиваем формулу, если нет LaTeX
     if '\\(' not in answer and ('^' in answer or '=' in answer or '/' in answer):
         answer = f"\\({answer}\\)"
     
-    await send_text_with_formulas(event, answer)
+    await send_text_with_formulas(chat_id, answer)
 
 # ======================== 5. ЗАПУСК ========================
 
